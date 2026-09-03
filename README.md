@@ -44,8 +44,18 @@ The full preset is 15 runs of 30 epochs: 3 depths x {resnet, plain} x 2
 seeds, plus alpha in {0.25, 0.5, 0.75} at 56 layers. The alpha=0 and
 alpha=1 ends of that sweep are the plain and residual runs, which with
 option A shortcuts are bit-for-bit the same networks, so they are not
-retrained. Roughly 2-3 hours on a T4. To cut it down, set `SEEDS = [0]` or
-drop a depth from `DEPTHS` in `run_sweep.py`.
+retrained.
+
+Runs are ordered so that stopping early still leaves something complete.
+The first nine cover every depth and the whole alpha sweep at one seed,
+which is the entire study as a set of point estimates; the last six repeat
+the depth comparison at a second seed purely to put error bars on it. The
+analysis script handles a partially finished sweep, so it is safe to stop
+whenever and plot what exists.
+
+Budget roughly 25-30 min per 56-layer run and 10-15 min per 20-layer run at
+30 epochs, so the first nine runs are on the order of 4 hours and the whole
+thing 6 or more, depending on the GPU. `--epochs 20` cuts that by a third.
 
 ## Training setup
 

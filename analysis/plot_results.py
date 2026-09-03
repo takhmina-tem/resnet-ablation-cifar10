@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -146,7 +147,12 @@ def fig_early_stability(runs, depth, window=20):
 
 
 def fig_alpha_sweep(df, depth_n):
-    at_depth = df[(df.depth_n == depth_n) & (df.seed == ALPHA_SEED)]
+    scaled = df[(df.variant == "scaled") & (df.depth_n == depth_n)]
+    if scaled.empty:
+        return
+    # the endpoints have to come from the same seed the sweep was run at
+    seed = scaled.seed.min()
+    at_depth = df[(df.depth_n == depth_n) & (df.seed == seed)]
     pts = at_depth[at_depth.variant.isin(["scaled", "plain", "resnet"])]
     pts = pts[["alpha", "test_acc", "fit_acc"]].groupby("alpha").mean().reset_index().sort_values("alpha")
     if pts.empty:
@@ -197,7 +203,7 @@ def main():
     depth_layers = 6 * deepest + 2
 
     def pick(variant):
-        sub = df[(df.variant == variant) & (df.depth_n == deepest) & (df.seed == ALPHA_SEED)]
+        sub = df[(df.variant == variant) & (df.depth_n == deepest)].sort_values("seed")
         return sub.run_name.iloc[0] if not sub.empty else None
 
     runs = {}
@@ -217,4 +223,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        RESULTS_DIR = sys.argv[1]
     main()

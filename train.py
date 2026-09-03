@@ -24,6 +24,7 @@ def set_seed(seed):
 
 def get_device():
     if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True
         return torch.device("cuda")
     if torch.backends.mps.is_available():
         return torch.device("mps")

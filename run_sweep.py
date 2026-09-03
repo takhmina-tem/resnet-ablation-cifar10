@@ -7,11 +7,11 @@ DEPTHS = [3, 5, 9]        # n -> resnet depth 6n+2 = 20, 32, 56
 SEEDS = [0, 1]
 ALPHA_DEPTH = 9
 ALPHAS = [0.25, 0.5, 0.75]  # the 0.0 and 1.0 ends are the plain/resnet runs at ALPHA_DEPTH,
-ALPHA_SEED = 0              # which with option A shortcuts are the identical network
+ALPHA_SEED = SEEDS[0]       # which with option A shortcuts are the identical network
 
 
-def baseline_configs():
-    for n, variant, seed in itertools.product(DEPTHS, ["resnet", "plain"], SEEDS):
+def depth_configs(seed):
+    for n, variant in itertools.product(DEPTHS, ["resnet", "plain"]):
         alpha = 1.0 if variant == "resnet" else 0.0
         yield dict(n=n, variant=variant, alpha=alpha, seed=seed)
 
@@ -19,6 +19,16 @@ def baseline_configs():
 def alpha_configs():
     for alpha in ALPHAS:
         yield dict(n=ALPHA_DEPTH, variant="scaled", alpha=alpha, seed=ALPHA_SEED)
+
+
+def full_configs():
+    # ordered so that stopping early still leaves a complete study: one seed
+    # across every depth, then the alpha ablation, and only then the repeat
+    # seeds that turn the point estimates into error bars
+    yield from depth_configs(SEEDS[0])
+    yield from alpha_configs()
+    for seed in SEEDS[1:]:
+        yield from depth_configs(seed)
 
 
 def main():
@@ -40,7 +50,7 @@ def main():
     else:
         epochs = args.epochs or 30
         out_dir = args.out_dir or "./results"
-        configs = list(baseline_configs()) + list(alpha_configs())
+        configs = list(full_configs())
 
     print(f"{len(configs)} runs, {epochs} epochs each, preset={args.preset}, out_dir={out_dir}")
     for i, cfg in enumerate(configs, 1):
