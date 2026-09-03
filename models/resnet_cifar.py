@@ -2,8 +2,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class IdentityShortcut(nn.Module):
+    # He et al.'s option A: subsample spatially and zero-pad the new channels.
+    # Parameter-free, so the plain and residual networks end up with exactly the
+    # same parameters and the same initialisation for a given seed.
+    def __init__(self, stride, pad):
+        super().__init__()
+        self.stride = stride
+        self.pad = pad
+
+    def forward(self, x):
+        if self.stride > 1:
+            x = x[:, :, ::self.stride, ::self.stride]
+        if self.pad > 0:
+            x = F.pad(x, (0, 0, 0, 0, self.pad // 2, self.pad - self.pad // 2))
+        return x
+
+
 class Block(nn.Module):
-    def __init__(self, in_c, out_c, stride, use_shortcut, alpha=1.0):
+    def __init__(self, in_c, out_c, stride, use_shortcut, alpha=1.0, shortcut="A"):
         super().__init__()
         self.use_shortcut = use_shortcut
         self.alpha = alpha
@@ -15,10 +32,13 @@ class Block(nn.Module):
 
         self.shortcut = None
         if use_shortcut and (stride != 1 or in_c != out_c):
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(in_c, out_c, 1, stride=stride, bias=False),
-                nn.BatchNorm2d(out_c),
-            )
+            if shortcut == "A":
+                self.shortcut = IdentityShortcut(stride, out_c - in_c)
+            else:
+                self.shortcut = nn.Sequential(
+                    nn.Conv2d(in_c, out_c, 1, stride=stride, bias=False),
+                    nn.BatchNorm2d(out_c),
+                )
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
@@ -30,9 +50,9 @@ class Block(nn.Module):
 
 
 class CifarResNet(nn.Module):
-    # depth = 6n + 2, following He et al.'s CIFAR setup: stem + 3 stages of n
-    # blocks (16/32/64 channels), downsampling by stride 2 between stages.
-    def __init__(self, n, use_shortcut=True, alpha=1.0, num_classes=10):
+    # depth = 6n + 2: stem + 3 stages of n blocks (16/32/64 channels), stride 2
+    # between stages, global average pool, linear classifier.
+    def __init__(self, n, use_shortcut=True, alpha=1.0, num_classes=10, shortcut="A"):
         super().__init__()
         self.n = n
         self.depth = 6 * n + 2
@@ -42,9 +62,9 @@ class CifarResNet(nn.Module):
             nn.BatchNorm2d(16),
             nn.ReLU(inplace=True),
         )
-        self.stage1 = self._stage(16, 16, n, 1, use_shortcut, alpha)
-        self.stage2 = self._stage(16, 32, n, 2, use_shortcut, alpha)
-        self.stage3 = self._stage(32, 64, n, 2, use_shortcut, alpha)
+        self.stage1 = self._stage(16, 16, n, 1, use_shortcut, alpha, shortcut)
+        self.stage2 = self._stage(16, 32, n, 2, use_shortcut, alpha, shortcut)
+        self.stage3 = self._stage(32, 64, n, 2, use_shortcut, alpha, shortcut)
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Linear(64, num_classes)
 
@@ -55,10 +75,10 @@ class CifarResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-    def _stage(self, in_c, out_c, n, stride, use_shortcut, alpha):
-        blocks = [Block(in_c, out_c, stride, use_shortcut, alpha)]
+    def _stage(self, in_c, out_c, n, stride, use_shortcut, alpha, shortcut):
+        blocks = [Block(in_c, out_c, stride, use_shortcut, alpha, shortcut)]
         for _ in range(n - 1):
-            blocks.append(Block(out_c, out_c, 1, use_shortcut, alpha))
+            blocks.append(Block(out_c, out_c, 1, use_shortcut, alpha, shortcut))
         return nn.Sequential(*blocks)
 
     def forward(self, x):
@@ -73,14 +93,21 @@ class CifarResNet(nn.Module):
         return [("stem", self.stem), ("stage1", self.stage1),
                 ("stage2", self.stage2), ("stage3", self.stage3)]
 
+    def block_modules(self):
+        out = []
+        for name in ("stage1", "stage2", "stage3"):
+            for block in getattr(self, name):
+                out.append((name, block))
+        return out
 
-def build_model(n, variant, alpha=1.0, num_classes=10):
+
+def build_model(n, variant, alpha=1.0, num_classes=10, shortcut="A"):
     if variant == "resnet":
-        return CifarResNet(n, use_shortcut=True, alpha=1.0, num_classes=num_classes)
+        return CifarResNet(n, use_shortcut=True, alpha=1.0, num_classes=num_classes, shortcut=shortcut)
     if variant == "plain":
-        return CifarResNet(n, use_shortcut=False, alpha=0.0, num_classes=num_classes)
+        return CifarResNet(n, use_shortcut=False, alpha=0.0, num_classes=num_classes, shortcut=shortcut)
     if variant == "scaled":
-        return CifarResNet(n, use_shortcut=True, alpha=alpha, num_classes=num_classes)
+        return CifarResNet(n, use_shortcut=True, alpha=alpha, num_classes=num_classes, shortcut=shortcut)
     raise ValueError(variant)
 
 

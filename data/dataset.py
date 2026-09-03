@@ -37,11 +37,17 @@ def get_dataloaders(data_dir, seed, batch_size=128, val_fraction=0.1, augment=Tr
 
     train_set = Subset(train_raw, train_idx)
     val_set = Subset(train_raw_eval, val_idx)
+    # same training images, but no augmentation: used to measure how well the
+    # model actually fits the training set, separately from the noisy running
+    # average collected during training
+    train_clean_set = Subset(train_raw_eval, train_idx)
 
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,
                                num_workers=num_workers, drop_last=True, pin_memory=True)
+    train_clean_loader = DataLoader(train_clean_set, batch_size=256, shuffle=False,
+                                     num_workers=num_workers, pin_memory=True)
     val_loader = DataLoader(val_set, batch_size=256, shuffle=False,
                              num_workers=num_workers, pin_memory=True)
     test_loader = DataLoader(test_set, batch_size=256, shuffle=False,
                               num_workers=num_workers, pin_memory=True)
-    return train_loader, val_loader, test_loader
+    return train_loader, train_clean_loader, val_loader, test_loader
