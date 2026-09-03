@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 
 RESULTS_DIR = "results"
 FIG_DIR = "figures"
-ALPHA_SEED = 0
 
 STYLE = {"resnet": ("o", "tab:blue", "ResNet"), "plain": ("s", "tab:orange", "Plain")}
 
@@ -18,7 +17,7 @@ def load_summary():
     dropped = df.diverged.astype(str).str.lower() == "true"
     if dropped.any():
         print("excluding diverged runs:", ", ".join(df[dropped].run_name))
-    df = df[~dropped]
+    df = df[~dropped].copy()
     df["resnet_depth"] = 6 * df["depth_n"] + 2
     return df
 
