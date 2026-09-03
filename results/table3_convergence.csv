@@ -1,0 +1,7 @@
+depth,variant,epochs,n_reached,n_seeds,budget,censored,plotted
+20,plain,12.5,2,2,30,False,12.5
+20,resnet,8.0,2,2,30,False,8.0
+32,plain,18.0,2,2,30,False,18.0
+32,resnet,8.5,2,2,30,False,8.5
+56,plain,28.0,1,2,30,True,30.0
+56,resnet,8.5,2,2,30,False,8.5

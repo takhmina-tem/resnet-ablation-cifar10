@@ -88,22 +88,36 @@ def fig_convergence(df):
     hit = epochs_to_threshold(df)
     if hit.empty:
         return
-    agg = hit.groupby(["depth", "variant"]).agg(epochs=("epochs", "mean"),
-                                                 budget=("budget", "max")).reset_index()
+    agg = hit.groupby(["depth", "variant"]).agg(
+        epochs=("epochs", "mean"),
+        n_reached=("epochs", "count"),
+        n_seeds=("epochs", "size"),
+        budget=("budget", "max")).reset_index()
+    # a seed that never reaches the threshold is right-censored, not missing:
+    # averaging only the seeds that made it would understate the cost
+    agg["censored"] = agg.n_reached < agg.n_seeds
+    agg["plotted"] = np.where(agg.censored, agg.budget, agg.epochs)
     depths = sorted(agg.depth.unique())
 
     fig, ax = plt.subplots(figsize=(HALF + 0.4, 2.5))
     for variant in ARMS:
         s = agg[agg.variant == variant].sort_values("depth")
-        ax.plot(s.depth, s.epochs, marker=MARKER[variant], color=SERIES[variant],
-                label=LABEL[variant])
-        for _, r in s.iterrows():
-            if np.isnan(r.epochs):
-                ax.annotate("not reached", (r.depth, r.budget), color=SERIES[variant],
-                            fontsize=7, ha="center", va="bottom")
+        ax.plot(s.depth, s.plotted, color=SERIES[variant], label=LABEL[variant], zorder=2)
+        full = s[~s.censored]
+        ax.plot(full.depth, full.plotted, marker=MARKER[variant], ls="none",
+                color=SERIES[variant], zorder=3)
+        for _, r in s[s.censored].iterrows():
+            ax.plot([r.depth], [r.plotted], marker=MARKER[variant], ls="none",
+                    mfc="white", mec=SERIES[variant], mew=1.2, zorder=3)
+            ax.annotate(f"$\\geq${int(r.budget)}\n{int(r.n_seeds - r.n_reached)} of "
+                        f"{int(r.n_seeds)} never reached",
+                        (r.depth, r.plotted), textcoords="offset points",
+                        xytext=(-4, -4), ha="right", va="top",
+                        color=MUTED, fontsize=6.8)
     ax.set_xlabel("Depth (layers)")
     ax.set_ylabel(f"Epochs to {int(THRESHOLD * 100)}% train accuracy")
     ax.set_xticks(depths)
+    ax.set_ylim(0, agg.budget.max() * 1.12)
     ax.legend(loc="upper left")
     style.tidy(ax)
     fig.savefig(os.path.join(FIG_DIR, "fig7_convergence_speed.png"))
