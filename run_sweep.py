@@ -1,7 +1,27 @@
 import argparse
+import glob
 import itertools
+import os
+import shutil
 
 from train import run
+
+
+def mirror_to(src_dir, dst_dir):
+    # Training writes locally: a mounted Drive is a FUSE filesystem and dies
+    # under the per-step writes. Copying once per finished run is fine for it.
+    try:
+        os.makedirs(dst_dir, exist_ok=True)
+        for f in glob.glob(os.path.join(src_dir, "*.csv")):
+            shutil.copy(f, dst_dir)
+        for d in glob.glob(os.path.join(src_dir, "*", "")):
+            name = os.path.basename(os.path.normpath(d))
+            out = os.path.join(dst_dir, name)
+            os.makedirs(out, exist_ok=True)
+            for f in glob.glob(os.path.join(d, "*.csv")) + glob.glob(os.path.join(d, "DONE")):
+                shutil.copy(f, out)
+    except Exception as e:
+        print("could not mirror results, continuing anyway:", e)
 
 DEPTHS = [3, 5, 9]        # n -> resnet depth 6n+2 = 20, 32, 56
 SEEDS = [0, 1]
@@ -37,6 +57,7 @@ def main():
     p.add_argument("--epochs", type=int, default=None)
     p.add_argument("--data_dir", default="./data_cache")
     p.add_argument("--out_dir", default=None)
+    p.add_argument("--mirror", default=None, help="copy results here after each run")
     args = p.parse_args()
 
     if args.preset == "smoke":
@@ -57,6 +78,8 @@ def main():
         print(f"\n[{i}/{len(configs)}] {cfg}")
         run(n=cfg["n"], variant=cfg["variant"], alpha=cfg["alpha"], seed=cfg["seed"],
             epochs=epochs, data_dir=args.data_dir, out_dir=out_dir)
+        if args.mirror:
+            mirror_to(out_dir, args.mirror)
 
 
 if __name__ == "__main__":
