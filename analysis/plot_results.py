@@ -34,6 +34,13 @@ def read_run(run_name, fname):
     return None if d.empty else d
 
 
+def missing(df, fname):
+    absent = [r for r in df.run_name if read_run(r, fname) is None]
+    if absent:
+        print(f"no {fname} for:", ", ".join(absent))
+    return absent
+
+
 def arm_series(df, col):
     return df.groupby(["depth", "variant"])[col].agg(["mean", "std"]).reset_index()
 
@@ -71,14 +78,17 @@ def fig_fit_and_test(df):
     return out
 
 
-def epochs_to_threshold(df, thr=THRESHOLD):
+def epochs_to_threshold(df, thr=THRESHOLD, arms=ARMS):
+    # the threshold is crossed on the running training accuracy rather than on the
+    # clean fit accuracy, which is only evaluated once per run; both arms are read
+    # the same way, so the comparison stands even though the level is optimistic
     rows = []
-    for _, r in df[df.variant.isin(ARMS)].iterrows():
+    for _, r in df[df.variant.isin(arms)].iterrows():
         d = read_run(r.run_name, "epochs.csv")
         if d is None:
             continue
         hit = d[d.train_acc >= thr]
-        rows.append(dict(depth=r.depth, variant=r.variant, seed=r.seed,
+        rows.append(dict(depth=r.depth, variant=r.variant, alpha=r.alpha, seed=r.seed,
                           epochs=int(hit.epoch.iloc[0]) if not hit.empty else np.nan,
                           budget=int(d.epoch.max())))
     return pd.DataFrame(rows)
@@ -112,12 +122,13 @@ def fig_convergence(df):
             ax.annotate(f"$\\geq${int(r.budget)}\n{int(r.n_seeds - r.n_reached)} of "
                         f"{int(r.n_seeds)} never reached",
                         (r.depth, r.plotted), textcoords="offset points",
-                        xytext=(-4, -4), ha="right", va="top",
+                        xytext=(-6, -9), ha="right", va="top",
                         color=MUTED, fontsize=6.8)
     ax.set_xlabel("Depth (layers)")
     ax.set_ylabel(f"Epochs to {int(THRESHOLD * 100)}% train accuracy")
     ax.set_xticks(depths)
-    ax.set_ylim(0, agg.budget.max() * 1.12)
+    ax.set_xlim(depths[0] - 2, depths[-1] + 2)
+    ax.set_ylim(0, agg.budget.max() * 1.25)
     ax.legend(loc="upper left")
     style.tidy(ax)
     fig.savefig(os.path.join(FIG_DIR, "fig7_convergence_speed.png"))
@@ -128,7 +139,7 @@ def fig_convergence(df):
 
 def fig_gap(df):
     base = df[df.variant.isin(ARMS)].copy()
-    base["gap"] = (base.fit_acc - base.final_val_acc) * 100
+    base["gap"] = (base.fit_acc - base.sel_val_acc) * 100
     agg = base.groupby(["depth", "variant"]).gap.agg(["mean", "std"]).reset_index()
     depths = sorted(base.depth.unique())
 
@@ -147,21 +158,40 @@ def fig_gap(df):
     plt.close(fig)
 
 
-def fig_loss_curves(runs, depth):
-    fig, ax = plt.subplots(figsize=(HALF + 0.4, 2.5))
-    for variant, run_name in runs.items():
-        d = read_run(run_name, "epochs.csv")
-        if d is None:
-            continue
-        ax.plot(d.epoch, d.train_loss, color=SERIES[variant], label=f"{LABEL[variant]} train")
-        ax.plot(d.epoch, d.val_loss, color=SERIES[variant], ls=(0, (3, 2)),
-                lw=1.1, alpha=0.85, label=f"{LABEL[variant]} val")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Cross-entropy loss")
-    ax.set_title(f"{depth} layers", loc="left")
-    ax.legend(ncol=2, columnspacing=1.2, handlelength=1.6)
-    style.tidy(ax)
-    fig.savefig(os.path.join(FIG_DIR, "fig2_loss_curves.png"))
+def fig_curves(df):
+    depths = sorted(df[df.variant.isin(ARMS)].depth.unique())
+    fig, axes = plt.subplots(2, len(depths), figsize=(FULL, 4.1), sharex=True)
+    fig.subplots_adjust(hspace=0.22, wspace=0.28)
+
+    for col, depth in enumerate(depths):
+        for row, (metric, ylabel) in enumerate([("loss", "Cross-entropy loss"),
+                                                 ("acc", "Accuracy (%)")]):
+            ax = axes[row, col]
+            for variant in ARMS:
+                runs = df[(df.variant == variant) & (df.depth == depth)].run_name
+                for run_name in runs:
+                    d = read_run(run_name, "epochs.csv")
+                    if d is None:
+                        continue
+                    scale = 100 if metric == "acc" else 1
+                    ax.plot(d.epoch, d[f"train_{metric}"] * scale, color=SERIES[variant], lw=1.3)
+                    ax.plot(d.epoch, d[f"val_{metric}"] * scale, color=SERIES[variant],
+                            ls=(0, (3, 2)), lw=1.0, alpha=0.9)
+            if col == 0:
+                ax.set_ylabel(ylabel)
+            if row == 0:
+                ax.set_title(f"{depth} layers", loc="left")
+            else:
+                ax.set_xlabel("Epoch")
+            style.tidy(ax)
+
+    # one key for the whole grid: colour is the arm, dashes are the validation set
+    keys = [plt.Line2D([], [], color=SERIES[v], lw=1.3, label=LABEL[v]) for v in ARMS]
+    keys += [plt.Line2D([], [], color=MUTED, lw=1.3, label="train"),
+             plt.Line2D([], [], color=MUTED, lw=1.0, ls=(0, (3, 2)), label="validation")]
+    axes[0, -1].legend(handles=keys, loc="upper right", ncol=2, columnspacing=1.0,
+                       handlelength=1.5, fontsize=7.5)
+    fig.savefig(os.path.join(FIG_DIR, "fig2_curves.png"))
     plt.close(fig)
 
 
@@ -173,7 +203,7 @@ def _grad_at(run_name, epoch):
     return None if d.empty else d
 
 
-def fig_grad_profile(runs, depth):
+def fig_grad_profile(runs):
     fig, axes = plt.subplots(1, 2, figsize=(FULL, 2.5))
     bounds = []
     for variant, run_name in runs.items():
@@ -201,7 +231,7 @@ def fig_grad_profile(runs, depth):
     plt.close(fig)
 
 
-def fig_grad_evolution(runs, depth):
+def fig_grad_evolution(runs):
     epochs = None
     for run_name in runs.values():
         d = read_run(run_name, "grad_norms.csv")
@@ -230,8 +260,11 @@ def fig_grad_evolution(runs, depth):
     plt.close(fig)
 
 
-def fig_early_stability(runs, depth, window=25):
-    fig, ax = plt.subplots(figsize=(HALF + 0.4, 2.5))
+def fig_stability(df, runs, depth, window=25):
+    fig, axes = plt.subplots(1, 2, figsize=(FULL, 2.5))
+    fig.subplots_adjust(wspace=0.28)
+
+    ax = axes[0]
     for variant, run_name in runs.items():
         d = read_run(run_name, "steps.csv")
         if d is None:
@@ -241,13 +274,34 @@ def fig_early_stability(runs, depth, window=25):
         ax.plot(x, d.loss, color=SERIES[variant], lw=0.4, alpha=0.22)
         ax.plot(x, d.loss.rolling(window, min_periods=1).mean(),
                 color=SERIES[variant], label=LABEL[variant])
+    # the ResNet opens an order of magnitude above the plain network and comes
+    # back down within the first epoch; a linear axis shows only the spike
+    ax.set_yscale("log")
     ax.set_xlabel("Training step")
     ax.set_ylabel("Minibatch loss")
     ax.set_title(f"First epochs, {depth} layers", loc="left")
     ax.legend()
     style.tidy(ax)
-    fig.savefig(os.path.join(FIG_DIR, "fig5_early_stability.png"))
+
+    vol = val_volatility(df[df.variant.isin(ARMS)])
+    agg = vol.groupby(["depth", "variant"]).volatility.agg(["mean", "min", "max"]).reset_index()
+    ax = axes[1]
+    for variant in ARMS:
+        s = agg[agg.variant == variant].sort_values("depth")
+        ax.errorbar(s.depth, s["mean"], yerr=[s["mean"] - s["min"], s["max"] - s["mean"]],
+                    marker=MARKER[variant], color=SERIES[variant], capsize=2.5,
+                    elinewidth=0.8, label=LABEL[variant])
+    ax.set_xticks(sorted(agg.depth.unique()))
+    ax.set_xlabel("Depth (layers)")
+    ax.set_ylabel("Mean $|\\Delta|$ val accuracy (pp)")
+    ax.set_title("Epoch-to-epoch movement, epochs 5 to 30", loc="left")
+    ax.legend()
+    style.tidy(ax)
+
+    fig.savefig(os.path.join(FIG_DIR, "fig5_stability.png"))
     plt.close(fig)
+    vol.to_csv(os.path.join(RESULTS_DIR, "table7_volatility.csv"), index=False)
+    return agg
 
 
 def fig_alpha_sweep(df, depth_n):
@@ -256,25 +310,149 @@ def fig_alpha_sweep(df, depth_n):
         return
     seed = scaled.seed.min()
     at = df[(df.depth_n == depth_n) & (df.seed == seed)]
-    pts = at[at.variant.isin(["scaled", "plain", "resnet"])]
-    pts = pts.groupby("alpha")[["fit_acc", "test_acc"]].mean().reset_index().sort_values("alpha")
+    pts = at.groupby("alpha")[["fit_acc", "test_acc"]].mean().reset_index().sort_values("alpha")
 
-    fig, ax = plt.subplots(figsize=(HALF + 0.4, 2.5))
+    hit = epochs_to_threshold(at, arms=("resnet", "plain", "scaled"))
+    vol = val_volatility(at)
+    pts = pts.merge(hit.groupby("alpha").epochs.mean().reset_index(), on="alpha", how="left")
+    pts = pts.merge(vol.groupby("alpha").volatility.mean().reset_index(), on="alpha", how="left")
+
+    fig, axes = plt.subplots(1, 3, figsize=(FULL, 2.5))
+    fig.subplots_adjust(wspace=0.38)
+
+    ax = axes[0]
     ax.plot(pts.alpha, pts.fit_acc * 100, marker="D", color=style.AQUA, label="Train (clean)")
     ax.plot(pts.alpha, pts.test_acc * 100, marker="o", color=style.BLUE, label="Test")
+    ax.set_ylabel("Accuracy (%)")
+    ax.set_title("Final accuracy", loc="left")
+    ax.legend(loc="lower right")
+
+    axes[1].plot(pts.alpha, pts.epochs, marker="s", color=style.ORANGE)
+    axes[1].set_ylabel(f"Epochs to {int(THRESHOLD * 100)}% train accuracy")
+    axes[1].set_title("Optimization speed", loc="left")
+
+    axes[2].plot(pts.alpha, pts.volatility, marker="o", color=style.AQUA)
+    axes[2].set_ylabel("Mean $|\\Delta|$ val accuracy (pp)")
+    axes[2].set_title("Late-training stability", loc="left")
+
+    for ax in axes:
+        ax.set_xlabel(r"Shortcut scale $\alpha$")
+        ax.set_xticks(pts.alpha)
+        style.tidy(ax)
     for a, lbl in [(0.0, "plain"), (1.0, "ResNet")]:
         row = pts[pts.alpha == a]
         if not row.empty:
-            ax.annotate(lbl, (a, row.test_acc.iloc[0] * 100), textcoords="offset points",
-                        xytext=(0, -12), ha="center", color=MUTED, fontsize=7.5)
-    ax.set_xlabel(r"Residual scale $\alpha$")
-    ax.set_ylabel("Accuracy (%)")
-    ax.set_title(f"{6 * depth_n + 2} layers", loc="left")
-    ax.legend(loc="lower right")
-    style.tidy(ax)
+            side = 7 if a == 0.0 else -7
+            axes[0].annotate(lbl, (a, row.test_acc.iloc[0] * 100), textcoords="offset points",
+                             xytext=(side, -2), ha="left" if a == 0.0 else "right",
+                             va="center", color=MUTED, fontsize=7.5)
     fig.savefig(os.path.join(FIG_DIR, "fig6_alpha_sweep.png"))
     plt.close(fig)
     pts.to_csv(os.path.join(RESULTS_DIR, "table2_alpha.csv"), index=False)
+    return pts
+
+
+def fig_fit_vs_test(df):
+    # the headline comparison confounds fit with generalisation, because the two
+    # arms end at different fit accuracies. Plotting every run against its own fit
+    # asks the question the other way round: at equal fit, does the arm matter?
+    slope, intercept = np.polyfit(df.fit_acc * 100, df.test_acc * 100, 1)
+    resid = df.test_acc * 100 - (slope * df.fit_acc * 100 + intercept)
+
+    fig, ax = plt.subplots(figsize=(HALF + 0.4, 2.7))
+    grid = np.linspace(df.fit_acc.min() * 100 - 1, df.fit_acc.max() * 100 + 1, 2)
+    ax.plot(grid, slope * grid + intercept, color=MUTED, lw=0.9, ls=(0, (4, 3)), zorder=1)
+    for variant in ("resnet", "plain", "scaled"):
+        s = df[df.variant == variant]
+        ax.plot(s.fit_acc * 100, s.test_acc * 100, ls="none", marker=MARKER[variant],
+                color=SERIES[variant], label=LABEL[variant], mew=0, zorder=3)
+
+    pair = df[df.run_name.isin(["n3_resnet_a1.00_s0", "n9_scaled_a0.75_s0"])]
+    if len(pair) == 2:
+        ax.annotate("20L ResNet and 56L $\\alpha{=}0.75$\nland on the same point",
+                    (pair.fit_acc.mean() * 100, pair.test_acc.mean() * 100),
+                    textcoords="offset points", xytext=(-8, 16), ha="right",
+                    fontsize=7, color=MUTED,
+                    arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.6,
+                                    shrinkA=0, shrinkB=4))
+    ax.set_xlabel("Training accuracy, no augmentation (%)")
+    ax.set_ylabel("Test accuracy (%)")
+    ax.legend(loc="upper left")
+    style.tidy(ax)
+    fig.savefig(os.path.join(FIG_DIR, "fig10_fit_vs_test.png"))
+    plt.close(fig)
+
+    out = df[["run_name", "variant", "depth", "seed", "fit_acc", "test_acc"]].copy()
+    out["residual_pp"] = resid
+    out.to_csv(os.path.join(RESULTS_DIR, "table5_fit_vs_test.csv"), index=False)
+    return slope, intercept, np.corrcoef(df.fit_acc, df.test_acc)[0, 1], resid
+
+
+def imbalance_ratios(df):
+    rows = []
+    for _, r in df[df.variant.isin(ARMS)].iterrows():
+        g = read_run(r.run_name, "grad_norms.csv")
+        if g is None:
+            continue
+        g = g.assign(relative=g.grad_norm / g.weight_norm)
+        for epoch, block in g.groupby("epoch"):
+            block = block.sort_values("block")
+            rows.append(dict(depth=r.depth, variant=r.variant, seed=r.seed, epoch=epoch,
+                             ratio=block.relative.iloc[0] / block.relative.iloc[-1]))
+    return pd.DataFrame(rows)
+
+
+def fig_imbalance_vs_depth(df):
+    # the 56-layer gradient profile on its own cannot separate "imbalance causes
+    # the failure" from "imbalance happens to accompany it": the control is the
+    # same measurement at depths where the plain network trains perfectly well
+    ratios = imbalance_ratios(df)
+    if ratios.empty:
+        return None
+    epochs = sorted(ratios.epoch.unique())[:2]
+    depths = sorted(ratios.depth.unique())
+
+    fig, axes = plt.subplots(1, 2, figsize=(FULL, 2.5), sharey=True)
+    fig.subplots_adjust(wspace=0.12)
+    for ax, epoch in zip(axes, epochs):
+        at = ratios[ratios.epoch == epoch]
+        ax.axhline(1.0, color=style.GRID, lw=0.8, zorder=0)
+        for variant in ARMS:
+            s = at[at.variant == variant].groupby("depth").ratio.mean().reset_index()
+            ax.plot(s.depth, s.ratio, marker=MARKER[variant], color=SERIES[variant],
+                    label=LABEL[variant], zorder=2)
+            raw = at[at.variant == variant]
+            ax.plot(raw.depth, raw.ratio, ls="none", marker=MARKER[variant], ms=3,
+                    color=SERIES[variant], alpha=0.45, zorder=3)
+        ax.set_yscale("log")
+        ax.set_xticks(depths)
+        ax.set_xlabel("Depth (layers)")
+        ax.set_title(f"Epoch {int(epoch)}", loc="left")
+        style.tidy(ax)
+    axes[0].set_ylabel("Relative gradient,\nfirst block / last block")
+    axes[0].legend(loc="upper left")
+    axes[1].text(0.03, 0.06, "below 1: the early layers now\nreceive the smaller update",
+                 transform=axes[1].transAxes, ha="left", va="bottom",
+                 fontsize=7, color=MUTED)
+    fig.savefig(os.path.join(FIG_DIR, "fig11_imbalance_vs_depth.png"))
+    plt.close(fig)
+
+    agg = ratios.groupby(["depth", "variant", "epoch"]).ratio.mean().reset_index()
+    agg.to_csv(os.path.join(RESULTS_DIR, "table6_imbalance.csv"), index=False)
+    return agg
+
+
+def val_volatility(df, from_epoch=5):
+    rows = []
+    for _, r in df.iterrows():
+        d = read_run(r.run_name, "epochs.csv")
+        if d is None:
+            continue
+        late = d[d.epoch >= from_epoch]
+        rows.append(dict(run_name=r.run_name, depth=r.depth, variant=r.variant,
+                         alpha=r.alpha, seed=r.seed,
+                         volatility=late.val_acc.diff().abs().mean() * 100))
+    return pd.DataFrame(rows)
 
 
 def latex_table(df):
@@ -299,10 +477,35 @@ def latex_table(df):
     print(body)
 
 
+def latex_runs_table(df):
+    # with two seeds a standard deviation is barely a statistic, so the appendix
+    # lists the runs themselves and lets the reader see the spread directly
+    vol = val_volatility(df).set_index("run_name")
+    lines = []
+    for _, r in df.sort_values(["depth", "variant", "alpha", "seed"]).iterrows():
+        d = read_run(r.run_name, "epochs.csv")
+        reached = "--"
+        if d is not None:
+            crossed = d[d.train_acc >= THRESHOLD]
+            reached = str(int(crossed.epoch.iloc[0])) if not crossed.empty else f"$>${int(d.epoch.max())}"
+        name = LABEL[r.variant] if r.variant != "scaled" else f"$\\alpha={r.alpha:g}$"
+        params = f"{int(r.n_params):,}".replace(",", "{,}")
+        lines.append(f"{int(r.depth)} & {name} & {int(r.seed)} & {params} & "
+                     f"{r.fit_acc * 100:.2f} & {r.sel_val_acc * 100:.2f} & "
+                     f"{r.test_acc * 100:.2f} & {reached} & "
+                     f"{vol.volatility.get(r.run_name, float('nan')):.2f} \\\\")
+    # no trailing \\ on the last row, or booktabs draws a rule under an empty one
+    body = "\n".join(lines).rstrip("\\")
+    with open(os.path.join(RESULTS_DIR, "table_runs_body.tex"), "w") as f:
+        f.write(body + "\n")
+
+
 def main():
     style.use()
     os.makedirs(FIG_DIR, exist_ok=True)
     df = load_summary()
+    for fname in ("epochs.csv", "grad_norms.csv", "steps.csv"):
+        missing(df, fname)
 
     deepest_n = df.depth_n.max()
     depth = 6 * deepest_n + 2
@@ -314,19 +517,34 @@ def main():
 
     print(fig_fit_and_test(df), "\n")
     fig_gap(df)
-    fig_loss_curves(runs, depth)
-    fig_grad_profile(runs, depth)
-    fig_grad_evolution(runs, depth)
-    fig_early_stability(runs, depth)
-    fig_alpha_sweep(df, deepest_n)
+    fig_curves(df)
+    fig_grad_profile(runs)
+    fig_grad_evolution(runs)
+
+    slope, intercept, r, resid = fig_fit_vs_test(df)
+    print(f"test = {slope:.3f} * fit + {intercept:.2f}   r = {r:.4f}   "
+          f"largest residual {np.abs(resid).max():.2f} pp")
+    print(df.assign(resid=resid).groupby("variant").resid.mean().to_string(), "\n")
+
+    stab = fig_stability(df, runs, depth)
+    print(stab.to_string(index=False), "\n")
+    print(fig_alpha_sweep(df, deepest_n).to_string(index=False), "\n")
+    imb = fig_imbalance_vs_depth(df)
+    if imb is not None:
+        print(imb.pivot_table(index=["depth", "variant"], columns="epoch",
+                              values="ratio").to_string(), "\n")
     conv = fig_convergence(df)
     if conv is not None:
         print(conv.to_string(index=False), "\n")
     latex_table(df)
+    latex_runs_table(df)
     print("\nfigures written to", FIG_DIR)
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         RESULTS_DIR = sys.argv[1]
+        # otherwise plotting a smoke sweep would overwrite the report's figures
+        if os.path.basename(RESULTS_DIR.rstrip("/")) != "results":
+            FIG_DIR = os.path.join(FIG_DIR, os.path.basename(RESULTS_DIR.rstrip("/")))
     main()

@@ -1,4 +1,4 @@
-run_name,depth_n,resnet_depth,variant,alpha,seed,n_params,epochs,best_val_acc,test_acc,fit_acc,fit_loss,final_val_acc,final_val_loss,diverged
+run_name,depth_n,resnet_depth,variant,alpha,seed,n_params,epochs,best_val_acc,test_acc,fit_acc,fit_loss,sel_val_acc,sel_val_loss,diverged
 n3_resnet_a1.00_s0,3,20,resnet,1.0,0,269722,30,0.901,0.9014,0.9609777777777778,0.11624793426725599,0.901,0.2950395004272461,False
 n3_plain_a0.00_s0,3,20,plain,0.0,0,269722,30,0.886,0.8853,0.9445777777777777,0.16175680930349562,0.886,0.3350984137058258,False
 n5_resnet_a1.00_s0,5,32,resnet,1.0,0,464154,30,0.9118,0.908,0.9766888888888889,0.07354854271279442,0.9118,0.2752807032108307,False

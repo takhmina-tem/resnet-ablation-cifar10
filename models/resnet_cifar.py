@@ -50,8 +50,7 @@ class Block(nn.Module):
 
 
 class CifarResNet(nn.Module):
-    # depth = 6n + 2: stem + 3 stages of n blocks (16/32/64 channels), stride 2
-    # between stages, global average pool, linear classifier.
+    # depth = 6n + 2
     def __init__(self, n, use_shortcut=True, alpha=1.0, num_classes=10, shortcut="A"):
         super().__init__()
         self.n = n

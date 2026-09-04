@@ -1,0 +1,13 @@
+run_name,depth,variant,alpha,seed,volatility
+n3_resnet_a1.00_s0,20,resnet,1.0,0,3.328800000000001
+n3_plain_a0.00_s0,20,plain,0.0,0,2.8176
+n5_resnet_a1.00_s0,32,resnet,1.0,0,1.146399999999999
+n5_plain_a0.00_s0,32,plain,0.0,0,5.2776
+n9_resnet_a1.00_s0,56,resnet,1.0,0,2.8112000000000004
+n9_plain_a0.00_s0,56,plain,0.0,0,5.9336
+n3_resnet_a1.00_s1,20,resnet,1.0,1,2.307200000000001
+n3_plain_a0.00_s1,20,plain,0.0,1,2.9232
+n5_resnet_a1.00_s1,32,resnet,1.0,1,1.436
+n5_plain_a0.00_s1,32,plain,0.0,1,3.892799999999999
+n9_resnet_a1.00_s1,56,resnet,1.0,1,3.1872000000000003
+n9_plain_a0.00_s1,56,plain,0.0,1,5.0032

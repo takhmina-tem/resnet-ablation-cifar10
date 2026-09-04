@@ -83,6 +83,8 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
         return
 
     ckpt_path = os.path.join(run_dir, "best.pth")
+    if os.path.exists(ckpt_path):
+        os.remove(ckpt_path)
 
     train_loader, train_clean_loader, val_loader, test_loader = get_dataloaders(
         data_dir, seed=seed, batch_size=batch_size, augment=augment, num_workers=num_workers)
@@ -137,6 +139,7 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
                 correct += (logits.argmax(1) == y).sum().item()
                 seen += x.size(0)
 
+            epoch_lr = optimizer.param_groups[0]["lr"]
             scheduler.step()
             train_loss = total_loss / seen
             train_acc = correct / seen
@@ -150,7 +153,7 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
             dt = time.time() - t0
 
             epoch_writer.writerow([epoch, train_loss, train_acc, val_loss, val_acc,
-                                    optimizer.param_groups[0]["lr"], dt])
+                                    epoch_lr, dt])
             f_epoch.flush()
             f_step.flush()
 
@@ -172,13 +175,13 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
     nan = float("nan")
     if os.path.exists(ckpt_path):
         model.load_state_dict(torch.load(ckpt_path, map_location=device))
-        test_loss, test_acc = evaluate(model, test_loader, device, criterion)
-        # training set without augmentation, in eval mode: this is the number
-        # that says how well the model actually fits the data it trained on
+        _, test_acc = evaluate(model, test_loader, device, criterion)
+        # everything below is measured on the selected checkpoint, not on the last
+        # epoch, so fit and validation refer to the same set of weights
         fit_loss, fit_acc = evaluate(model, train_clean_loader, device, criterion)
-        final_val_loss, final_val_acc = evaluate(model, val_loader, device, criterion)
+        sel_val_loss, sel_val_acc = evaluate(model, val_loader, device, criterion)
     else:
-        test_acc = fit_loss = fit_acc = final_val_loss = final_val_acc = nan
+        test_acc = fit_loss = fit_acc = sel_val_loss = sel_val_acc = nan
 
     summary_path = os.path.join(out_dir, "summary.csv")
     write_header = not os.path.exists(summary_path)
@@ -187,9 +190,9 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
         if write_header:
             w.writerow(["run_name", "depth_n", "resnet_depth", "variant", "alpha", "seed",
                         "n_params", "epochs", "best_val_acc", "test_acc",
-                        "fit_acc", "fit_loss", "final_val_acc", "final_val_loss", "diverged"])
+                        "fit_acc", "fit_loss", "sel_val_acc", "sel_val_loss", "diverged"])
         w.writerow([run_name, n, 6 * n + 2, variant, alpha, seed, n_params, epochs,
-                    best_val_acc, test_acc, fit_acc, fit_loss, final_val_acc, final_val_loss, diverged])
+                    best_val_acc, test_acc, fit_acc, fit_loss, sel_val_acc, sel_val_loss, diverged])
 
     if not diverged:
         with open(os.path.join(run_dir, "DONE"), "w") as f:

@@ -10,3 +10,5 @@ report/*.bbl
 report/*.blg
 .ipynb_checkpoints/
 results_smoke/
+figures/results_*/
+run_output/
