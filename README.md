@@ -1,6 +1,6 @@
 # ResNet ablation on CIFAR-10
 
-Project for 30562. ResNets vs the same networks with the shortcut removed, at
+ResNets vs the same networks with the shortcut removed, at
 20, 32 and 56 layers, plus a sweep over alpha in `F(x) + alpha*x`.
 
 Shortcuts are option A (subsample + zero-pad) so both arms have the same number
@@ -27,4 +27,4 @@ Training: SGD, momentum 0.9, Nesterov, lr 0.1 cosine over 30 epochs, wd 5e-4,
 batch 128, random crop + flip. Same for both arms.
 
 Note: the `lr` column in the saved `epochs.csv` files is off by one epoch.
-Nothing uses it.
+
