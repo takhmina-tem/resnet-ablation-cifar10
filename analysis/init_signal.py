@@ -11,12 +11,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from models.resnet_cifar import build_model
 from data.dataset import get_dataloaders
 
-BLUE = "#2a78d6"
-ORANGE = "#eb6834"
-AQUA = "#1baf7a"
-INK = "#1a1a19"
-MUTED = "#6b6a66"
-GRID = "#d9d8d4"
+BLUE = "C0"
+ORANGE = "C1"
+AQUA = "C2"
+INK = "black"
+MUTED = "gray"
+GRID = "lightgray"
 
 SERIES = {"resnet": BLUE, "plain": ORANGE, "scaled": AQUA}
 LABEL = {"resnet": "ResNet", "plain": "Plain", "scaled": r"$F(x)+\alpha x$"}
@@ -27,48 +27,7 @@ HALF = 3.25
 
 
 def use_style():
-    plt.rcParams.update({
-        "figure.dpi": 200,
-        "savefig.dpi": 200,
-        "savefig.bbox": "tight",
-        "savefig.pad_inches": 0.02,
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Nimbus Roman", "DejaVu Serif"],
-        "mathtext.fontset": "stix",
-        "font.size": 8.5,
-        "axes.titlesize": 9,
-        "axes.labelsize": 8.5,
-        "legend.fontsize": 8,
-        "xtick.labelsize": 8,
-        "ytick.labelsize": 8,
-        "axes.edgecolor": MUTED,
-        "axes.linewidth": 0.6,
-        "axes.labelcolor": INK,
-        "axes.titlecolor": INK,
-        "text.color": INK,
-        "xtick.color": MUTED,
-        "ytick.color": MUTED,
-        "xtick.labelcolor": INK,
-        "ytick.labelcolor": INK,
-        "xtick.major.width": 0.6,
-        "ytick.major.width": 0.6,
-        "xtick.major.size": 3,
-        "ytick.major.size": 3,
-        "lines.linewidth": 1.7,
-        "lines.markersize": 4.5,
-        "grid.color": GRID,
-        "grid.linewidth": 0.5,
-        "legend.frameon": False,
-        "axes.grid": False,
-    })
-
-
-def tidy(ax, ygrid=True):
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    if ygrid:
-        ax.set_axisbelow(True)
-        ax.yaxis.grid(True)
+    plt.rcParams.update({"figure.dpi": 150, "savefig.dpi": 150, "savefig.bbox": "tight"})
 
 
 DATA_DIR = sys.argv[1] if len(sys.argv) > 1 else "./data_cache"
@@ -137,8 +96,7 @@ def main():
     df.to_csv(os.path.join(RESULTS_DIR, "init_signal.csv"), index=False)
 
     depths = sorted(df.depth.unique())
-    fig, axes = plt.subplots(1, 3, figsize=(FULL, 2.4))
-    fig.subplots_adjust(wspace=0.58)
+    fig, axes = plt.subplots(1, 3, figsize=(FULL, 3.0))
 
     for ax, col, ylabel in [(axes[0], "act_rms", "Block output RMS"),
                             (axes[1], "relative", "Grad norm / weight norm")]:
@@ -150,9 +108,8 @@ def main():
         ax.set_yscale("log")
         ax.set_xlabel("Relative depth (input $\\rightarrow$ output)")
         ax.set_ylabel(ylabel)
-        tidy(ax)
-    axes[0].set_title("Forward signal", loc="left")
-    axes[1].set_title("Backward signal", loc="left")
+    axes[0].set_title("Forward signal")
+    axes[1].set_title("Backward signal")
     for variant, y, va in [("resnet", 0.93, "top"), ("plain", 0.09, "bottom")]:
         axes[0].text(0.97, y, LABEL[variant], transform=axes[0].transAxes, ha="right",
                      va=va, color=SERIES[variant], fontsize=8)
@@ -167,15 +124,15 @@ def main():
     ax.set_xticks(depths)
     ax.set_xlabel("Depth (layers)")
     ax.set_ylabel("$\\max/\\min$ across blocks")
-    ax.set_title("Imbalance vs depth", loc="left")
+    ax.set_title("Imbalance vs depth")
     ax.legend(loc="upper left")
-    tidy(ax)
 
     handles = [plt.Line2D([], [], color=shade(MUTED, (k + 1) / len(depths)),
                           lw=1.3 + 0.25 * k, label=f"{d}L") for k, d in enumerate(depths)]
     axes[1].legend(handles=handles, loc="upper right", ncol=1, labelspacing=0.3,
                    handlelength=1.3, labelcolor=MUTED)
 
+    fig.tight_layout()
     fig.savefig(os.path.join(FIG_DIR, "fig9_init_signal.png"))
     plt.close(fig)
 
