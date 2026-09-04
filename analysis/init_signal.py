@@ -1,11 +1,3 @@
-"""Signal propagation at initialisation, before any weight has been updated.
-
-The trained runs only measure gradients at 56 layers, so they show that the
-plain network is badly conditioned but not how that scales with depth. Nothing
-here needs training: build each network at its initial weights, push a few real
-CIFAR-10 batches through, and look at what comes back.
-"""
-
 import os
 import sys
 
@@ -15,12 +7,69 @@ import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import style
-from style import SERIES, LABEL, MARKER, MUTED, FULL
 from models.resnet_cifar import build_model
 from data.dataset import get_dataloaders
+
+BLUE = "#2a78d6"
+ORANGE = "#eb6834"
+AQUA = "#1baf7a"
+INK = "#1a1a19"
+MUTED = "#6b6a66"
+GRID = "#d9d8d4"
+
+SERIES = {"resnet": BLUE, "plain": ORANGE, "scaled": AQUA}
+LABEL = {"resnet": "ResNet", "plain": "Plain", "scaled": r"$F(x)+\alpha x$"}
+MARKER = {"resnet": "o", "plain": "s", "scaled": "D"}
+
+FULL = 6.5
+HALF = 3.25
+
+
+def use_style():
+    plt.rcParams.update({
+        "figure.dpi": 200,
+        "savefig.dpi": 200,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.02,
+        "font.family": "serif",
+        "font.serif": ["Times New Roman", "Nimbus Roman", "DejaVu Serif"],
+        "mathtext.fontset": "stix",
+        "font.size": 8.5,
+        "axes.titlesize": 9,
+        "axes.labelsize": 8.5,
+        "legend.fontsize": 8,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "axes.edgecolor": MUTED,
+        "axes.linewidth": 0.6,
+        "axes.labelcolor": INK,
+        "axes.titlecolor": INK,
+        "text.color": INK,
+        "xtick.color": MUTED,
+        "ytick.color": MUTED,
+        "xtick.labelcolor": INK,
+        "ytick.labelcolor": INK,
+        "xtick.major.width": 0.6,
+        "ytick.major.width": 0.6,
+        "xtick.major.size": 3,
+        "ytick.major.size": 3,
+        "lines.linewidth": 1.7,
+        "lines.markersize": 4.5,
+        "grid.color": GRID,
+        "grid.linewidth": 0.5,
+        "legend.frameon": False,
+        "axes.grid": False,
+    })
+
+
+def tidy(ax, ygrid=True):
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    if ygrid:
+        ax.set_axisbelow(True)
+        ax.yaxis.grid(True)
+
 
 DATA_DIR = sys.argv[1] if len(sys.argv) > 1 else "./data_cache"
 RESULTS_DIR = "results"
@@ -67,13 +116,12 @@ def measure(n, variant, batches):
 
 
 def shade(colour, k):
-    # lighter for shallower networks, so the three depths read as one family
     rgb = np.array(plt.matplotlib.colors.to_rgb(colour))
     return tuple(rgb + (1 - rgb) * (0.55 * (1 - k)))
 
 
 def main():
-    style.use()
+    use_style()
     os.makedirs(FIG_DIR, exist_ok=True)
 
     loader, _, _, _ = get_dataloaders(DATA_DIR, seed=SEED, batch_size=128, num_workers=0)
@@ -102,7 +150,7 @@ def main():
         ax.set_yscale("log")
         ax.set_xlabel("Relative depth (input $\\rightarrow$ output)")
         ax.set_ylabel(ylabel)
-        style.tidy(ax)
+        tidy(ax)
     axes[0].set_title("Forward signal", loc="left")
     axes[1].set_title("Backward signal", loc="left")
     for variant, y, va in [("resnet", 0.93, "top"), ("plain", 0.09, "bottom")]:
@@ -121,10 +169,8 @@ def main():
     ax.set_ylabel("$\\max/\\min$ across blocks")
     ax.set_title("Imbalance vs depth", loc="left")
     ax.legend(loc="upper left")
-    style.tidy(ax)
+    tidy(ax)
 
-    # line weight and tint carry depth in the first two panels, so the key is
-    # drawn in neutral grey rather than in either arm's colour
     handles = [plt.Line2D([], [], color=shade(MUTED, (k + 1) / len(depths)),
                           lw=1.3 + 0.25 * k, label=f"{d}L") for k, d in enumerate(depths)]
     axes[1].legend(handles=handles, loc="upper right", ncol=1, labelspacing=0.3,

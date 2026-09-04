@@ -3,9 +3,7 @@ import torch.nn.functional as F
 
 
 class IdentityShortcut(nn.Module):
-    # He et al.'s option A: subsample spatially and zero-pad the new channels.
-    # Parameter-free, so the plain and residual networks end up with exactly the
-    # same parameters and the same initialisation for a given seed.
+    # option A: subsample + zero-pad, no parameters
     def __init__(self, stride, pad):
         super().__init__()
         self.stride = stride

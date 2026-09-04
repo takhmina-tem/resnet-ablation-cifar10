@@ -37,8 +37,7 @@ def get_dataloaders(data_dir, seed, batch_size=128, val_fraction=0.1, augment=Tr
 
     train_set = Subset(train_raw, train_idx)
     val_set = Subset(train_raw_eval, val_idx)
-    # same training images, no augmentation: the fit measurement needs the
-    # training set as the evaluation sees it
+    # same images, no augmentation -- this is the fit measurement
     train_clean_set = Subset(train_raw_eval, train_idx)
 
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,

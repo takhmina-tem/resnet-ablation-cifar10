@@ -176,8 +176,6 @@ def run(n, variant, alpha, seed, epochs, lr=0.1, weight_decay=5e-4, batch_size=1
     if os.path.exists(ckpt_path):
         model.load_state_dict(torch.load(ckpt_path, map_location=device))
         _, test_acc = evaluate(model, test_loader, device, criterion)
-        # everything below is measured on the selected checkpoint, not on the last
-        # epoch, so fit and validation refer to the same set of weights
         fit_loss, fit_acc = evaluate(model, train_clean_loader, device, criterion)
         sel_val_loss, sel_val_acc = evaluate(model, val_loader, device, criterion)
     else:

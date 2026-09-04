@@ -8,8 +8,7 @@ from train import run
 
 
 def mirror_to(src_dir, dst_dir):
-    # Training writes locally: a mounted Drive is a FUSE filesystem and dies
-    # under the per-step writes. Copying once per finished run is fine for it.
+    # drive is a fuse mount and chokes on the per-step writes
     try:
         os.makedirs(dst_dir, exist_ok=True)
         for f in glob.glob(os.path.join(src_dir, "*.csv")):
@@ -42,9 +41,7 @@ def alpha_configs():
 
 
 def full_configs():
-    # ordered so that stopping early still leaves a complete study: one seed
-    # across every depth, then the alpha ablation, and only then the repeat
-    # seeds that turn the point estimates into error bars
+    # stopping early should still leave a complete study
     yield from depth_configs(SEEDS[0])
     yield from alpha_configs()
     for seed in SEEDS[1:]:
