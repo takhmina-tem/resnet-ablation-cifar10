@@ -260,42 +260,46 @@ def fig_grad_evolution(runs):
     plt.close(fig)
 
 
-def fig_stability(df, runs, depth, window=25):
-    fig, axes = plt.subplots(1, 2, figsize=(FULL, 2.5))
-    fig.subplots_adjust(wspace=0.28)
+def fig_stability(df, window=25):
+    depths = sorted(df[df.variant.isin(ARMS)].depth.unique())
+    fig, axes = plt.subplots(1, len(depths) + 1, figsize=(FULL, 2.3))
+    fig.subplots_adjust(wspace=0.3)
 
-    ax = axes[0]
-    for variant, run_name in runs.items():
-        d = read_run(run_name, "steps.csv")
-        if d is None:
-            continue
-        d = d.sort_values(["epoch", "step"]).reset_index(drop=True)
-        x = np.arange(len(d))
-        ax.plot(x, d.loss, color=SERIES[variant], lw=0.4, alpha=0.22)
-        ax.plot(x, d.loss.rolling(window, min_periods=1).mean(),
-                color=SERIES[variant], label=LABEL[variant])
-    # the ResNet opens an order of magnitude above the plain network and comes
-    # back down within the first epoch; a linear axis shows only the spike
-    ax.set_yscale("log")
-    ax.set_xlabel("Training step")
-    ax.set_ylabel("Minibatch loss")
-    ax.set_title(f"First epochs, {depth} layers", loc="left")
-    ax.legend()
-    style.tidy(ax)
+    for ax, depth in zip(axes, depths):
+        for variant in ARMS:
+            s = df[(df.variant == variant) & (df.depth == depth)].sort_values("seed")
+            if s.empty:
+                continue
+            d = read_run(s.run_name.iloc[0], "steps.csv")
+            if d is None:
+                continue
+            d = d.sort_values(["epoch", "step"]).reset_index(drop=True)
+            x = np.arange(len(d))
+            ax.plot(x, d.loss, color=SERIES[variant], lw=0.4, alpha=0.22)
+            ax.plot(x, d.loss.rolling(window, min_periods=1).mean(),
+                    color=SERIES[variant], label=LABEL[variant])
+        # the ResNet opens an order of magnitude above the plain network at the
+        # deepest setting; a linear axis shows only that spike
+        ax.set_yscale("log")
+        ax.set_ylim(0.8, 20)
+        ax.set_xlabel("Training step")
+        ax.set_title(f"{depth} layers", loc="left")
+        style.tidy(ax)
+    axes[0].set_ylabel("Minibatch loss")
+    axes[0].legend(loc="upper right")
 
     vol = val_volatility(df[df.variant.isin(ARMS)])
     agg = vol.groupby(["depth", "variant"]).volatility.agg(["mean", "min", "max"]).reset_index()
-    ax = axes[1]
+    ax = axes[-1]
     for variant in ARMS:
-        s = agg[agg.variant == variant].sort_values("depth")
-        ax.errorbar(s.depth, s["mean"], yerr=[s["mean"] - s["min"], s["max"] - s["mean"]],
+        v = agg[agg.variant == variant].sort_values("depth")
+        ax.errorbar(v.depth, v["mean"], yerr=[v["mean"] - v["min"], v["max"] - v["mean"]],
                     marker=MARKER[variant], color=SERIES[variant], capsize=2.5,
                     elinewidth=0.8, label=LABEL[variant])
-    ax.set_xticks(sorted(agg.depth.unique()))
+    ax.set_xticks(depths)
     ax.set_xlabel("Depth (layers)")
     ax.set_ylabel("Mean $|\\Delta|$ val accuracy (pp)")
-    ax.set_title("Epoch-to-epoch movement, epochs 5 to 30", loc="left")
-    ax.legend()
+    ax.set_title("Epochs 5 to 30", loc="left")
     style.tidy(ax)
 
     fig.savefig(os.path.join(FIG_DIR, "fig5_stability.png"))
@@ -456,23 +460,27 @@ def val_volatility(df, from_epoch=5):
 
 
 def latex_table(df):
+    # the whole tabular, not just its rows: \input of a row fragment inside a
+    # tabular leaves \bottomrule without its \cr and the table renders wrong
     base = df[df.variant.isin(ARMS)]
     depths = sorted(base.depth.unique())
-    lines = []
+    lines = [r"\begin{tabular}{l" + "c" * len(depths) + "}", r"\toprule",
+             " & " + " & ".join(f"{d} layers" for d in depths) + r" \\", r"\midrule"]
     for variant in ARMS:
         for metric, tag in [("fit_acc", "train"), ("test_acc", "test")]:
             cells = []
             for d in depths:
-                s = base[(base.variant == variant) & (base.depth == d)][metric].dropna()
-                if s.empty:
+                v = base[(base.variant == variant) & (base.depth == d)][metric].dropna()
+                if v.empty:
                     cells.append("--")
-                elif len(s) > 1:
-                    cells.append(f"{s.mean() * 100:.1f} $\\pm$ {s.std() * 100:.1f}")
+                elif len(v) > 1:
+                    cells.append(f"{v.mean() * 100:.1f} $\\pm$ {v.std() * 100:.1f}")
                 else:
-                    cells.append(f"{s.mean() * 100:.1f}")
+                    cells.append(f"{v.mean() * 100:.1f}")
             lines.append(f"{LABEL[variant]} ({tag}) & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
     body = "\n".join(lines)
-    with open(os.path.join(RESULTS_DIR, "table1_body.tex"), "w") as f:
+    with open(os.path.join(RESULTS_DIR, "table1_depth.tex"), "w") as f:
         f.write(body + "\n")
     print(body)
 
@@ -481,7 +489,9 @@ def latex_runs_table(df):
     # with two seeds a standard deviation is barely a statistic, so the appendix
     # lists the runs themselves and lets the reader see the spread directly
     vol = val_volatility(df).set_index("run_name")
-    lines = []
+    lines = [r"\begin{tabular}{llcrcccrc}", r"\toprule",
+             r"Depth & Variant & Seed & Params & Fit & Val & Test & Reach & Move \\",
+             r"\midrule"]
     for _, r in df.sort_values(["depth", "variant", "alpha", "seed"]).iterrows():
         d = read_run(r.run_name, "epochs.csv")
         reached = "--"
@@ -494,10 +504,9 @@ def latex_runs_table(df):
                      f"{r.fit_acc * 100:.2f} & {r.sel_val_acc * 100:.2f} & "
                      f"{r.test_acc * 100:.2f} & {reached} & "
                      f"{vol.volatility.get(r.run_name, float('nan')):.2f} \\\\")
-    # no trailing \\ on the last row, or booktabs draws a rule under an empty one
-    body = "\n".join(lines).rstrip("\\")
-    with open(os.path.join(RESULTS_DIR, "table_runs_body.tex"), "w") as f:
-        f.write(body + "\n")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    with open(os.path.join(RESULTS_DIR, "table_runs.tex"), "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def main():
@@ -526,7 +535,7 @@ def main():
           f"largest residual {np.abs(resid).max():.2f} pp")
     print(df.assign(resid=resid).groupby("variant").resid.mean().to_string(), "\n")
 
-    stab = fig_stability(df, runs, depth)
+    stab = fig_stability(df)
     print(stab.to_string(index=False), "\n")
     print(fig_alpha_sweep(df, deepest_n).to_string(index=False), "\n")
     imb = fig_imbalance_vs_depth(df)
